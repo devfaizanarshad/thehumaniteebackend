@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model customers {
+  id            BigInt             @id @default(autoincrement())
+  first_name    String
+  last_name     String
+  date_of_birth DateTime?
+  email         String             @unique
+  phone         String?
+  created_at    DateTime           @default(now())
+  orders        orders[]
+  humanity_num  humanity_numbers[]
+}
+
+model orders {
+  id             BigInt             @id @default(autoincrement())
+  customer_id    BigInt
+  order_number   String             @unique
+  product_key    String
+  product_name   String
+  size           String
+  quantity       Int
+  total_amount   Decimal            @db.Decimal(10, 2)
+  address_line_1 String
+  address_line_2 String?
+  city           String
+  postal_code    String
+  country        String
+  status         String             @default("pending")
+  created_at     DateTime           @default(now())
+
+  customer       customers          @relation(fields: [customer_id], references: [id])
+  payments       payments[]
+  humanity_num   humanity_numbers?
+}
+
+model payments {
+  id                  BigInt   @id @default(autoincrement())
+  order_id            BigInt
+  provider            String
+  provider_payment_id String
+  amount              Decimal  @db.Decimal(10, 2)
+  status              String   // pending, successful, failed, refunded
+  created_at          DateTime @default(now())
+
+  order orders @relation(fields: [order_id], references: [id])
+}
+
+model humanity_numbers {
+  id          BigInt   @id @default(autoincrement())
+  customer_id BigInt
+  order_id    BigInt   @unique
+  created_at  DateTime @default(now())
+
+  customer customers @relation(fields: [customer_id], references: [id])
+  order    orders    @relation(fields: [order_id], references: [id])
+}
