@@ -54,10 +54,11 @@ model payments {
 }
 
 model humanity_numbers {
-  id          BigInt   @id @default(autoincrement())
-  customer_id BigInt
-  order_id    BigInt   @unique
-  created_at  DateTime @default(now())
+  id              BigInt   @id @default(autoincrement())
+  humanity_number BigInt   @unique
+  customer_id     BigInt
+  order_id        BigInt   @unique
+  created_at      DateTime @default(now())
 
   customer customers @relation(fields: [customer_id], references: [id])
   order    orders    @relation(fields: [order_id], references: [id])

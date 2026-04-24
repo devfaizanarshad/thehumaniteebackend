@@ -35,7 +35,7 @@ const handleWebhook = async (req, res) => {
       if (payment) {
         const result = await markOrderPaid(payment.id);
 
-        console.log(`Payment succeeded. Humanity number generated: ${result.humanityNumber.id}`);
+        console.log(`Payment succeeded. Human number generated: ${result.humanityNumber.humanity_number || result.humanityNumber.id}`);
 
         if (result.shouldSendConfirmationEmail && result.emailResult && !result.emailResult.skipped) {
           console.log(

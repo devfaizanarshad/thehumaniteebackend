@@ -51,13 +51,21 @@ const getStoreConfig = () => ({
 
 const getCustomerName = (customer) => `${customer.first_name} ${customer.last_name}`.trim();
 
+const isProduction = () => process.env.NODE_ENV === 'production';
+
+const getDevEmailRecipient = () => process.env.EMAIL_TO || process.env.QUOTE_EMAIL_DEV || null;
+
 const getManagerRecipient = () => process.env.ORDER_MANAGER_EMAIL || process.env.EMAIL_TO;
+
+const getDisplayedHumanityNumber = (humanityNumber) => humanityNumber?.humanity_number ?? humanityNumber?.id ?? '-';
 
 const sendEmail = async ({ to, subject, html, text }) => {
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
     console.warn('Order email skipped: RESEND_API_KEY or EMAIL_FROM is missing.');
     return { skipped: true };
   }
+
+  const resolvedRecipient = isProduction() ? to : (getDevEmailRecipient() || to);
 
   const response = await fetch(RESEND_API_URL, {
     method: 'POST',
@@ -67,7 +75,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
     },
     body: JSON.stringify({
       from: process.env.EMAIL_FROM,
-      to,
+      to: resolvedRecipient,
       subject,
       html,
       text,
@@ -87,6 +95,7 @@ const buildCustomerOrderEmail = ({ order, customer, humanityNumber }) => {
   const { storeName, storeUrl, currency } = getStoreConfig();
   const customerName = getCustomerName(customer);
   const total = formatMoney(order.total_amount, currency);
+  const displayedHumanityNumber = getDisplayedHumanityNumber(humanityNumber);
 
   const html = `
 <!doctype html>
@@ -105,7 +114,7 @@ const buildCustomerOrderEmail = ({ order, customer, humanityNumber }) => {
             <tr>
               <td style="padding:32px;">
                 <p style="margin:0 0 18px;font-size:18px;">Hi ${escapeHtml(customerName || 'there')},</p>
-                <p style="margin:0 0 24px;line-height:1.6;">Thank you for your order. Your payment was successful and your Humanity Number has been generated.</p>
+                <p style="margin:0 0 24px;line-height:1.6;">Thank you for your order. Your payment was successful and your Human Number has been generated.</p>
 
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 24px;">
                   <tr>
@@ -113,8 +122,8 @@ const buildCustomerOrderEmail = ({ order, customer, humanityNumber }) => {
                     <td style="padding:12px;border-bottom:1px solid #eadfce;text-align:right;font-weight:bold;">${escapeHtml(order.order_number)}</td>
                   </tr>
                   <tr>
-                    <td style="padding:12px;border-bottom:1px solid #eadfce;color:#6f6257;">Humanity Number</td>
-                    <td style="padding:12px;border-bottom:1px solid #eadfce;text-align:right;font-weight:bold;">#${escapeHtml(humanityNumber.id)}</td>
+                    <td style="padding:12px;border-bottom:1px solid #eadfce;color:#6f6257;">Human Number</td>
+                    <td style="padding:12px;border-bottom:1px solid #eadfce;text-align:right;font-weight:bold;">#${escapeHtml(displayedHumanityNumber)}</td>
                   </tr>
                   <tr>
                     <td style="padding:12px;border-bottom:1px solid #eadfce;color:#6f6257;">Product</td>
@@ -162,7 +171,7 @@ const buildCustomerOrderEmail = ({ order, customer, humanityNumber }) => {
     '',
     'Thank you for your order. Your payment was successful.',
     `Order number: ${order.order_number}`,
-    `Humanity Number: #${humanityNumber.id}`,
+    `Human Number: #${displayedHumanityNumber}`,
     `Product: ${order.product_name}`,
     `Size: ${order.size}`,
     `Quantity: ${order.quantity}`,
@@ -188,6 +197,7 @@ const buildManagerOrderEmail = ({ order, customer, humanityNumber }) => {
   const { storeName, storeUrl, currency } = getStoreConfig();
   const customerName = getCustomerName(customer);
   const total = formatMoney(order.total_amount, currency);
+  const displayedHumanityNumber = getDisplayedHumanityNumber(humanityNumber);
   const latestPayment = Array.isArray(order.payments) && order.payments.length > 0 ? order.payments[0] : null;
   const paymentStatus = latestPayment?.status || 'successful';
   const paymentReference = latestPayment?.provider_payment_id || '-';
@@ -228,7 +238,7 @@ const buildManagerOrderEmail = ({ order, customer, humanityNumber }) => {
                   <tr>
                     <td style="padding-right:8px;width:33.33%;">
                       <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:18px;">
-                        <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Order</div>
+                        <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Order Number</div>
                         <div style="font-size:20px;font-weight:bold;color:#111827;">${escapeHtml(order.order_number)}</div>
                         <div style="margin-top:8px;font-size:13px;color:#4b5563;">Created ${escapeHtml(orderCreatedAt)}</div>
                       </div>
@@ -241,9 +251,9 @@ const buildManagerOrderEmail = ({ order, customer, humanityNumber }) => {
                       </div>
                     </td>
                     <td style="padding-left:8px;width:33.33%;">
-                      <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:18px;">
-                        <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Humanity Number</div>
-                        <div style="font-size:20px;font-weight:bold;color:#111827;">#${escapeHtml(humanityNumber.id)}</div>
+                        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:18px;">
+                          <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Human Number</div>
+                        <div style="font-size:20px;font-weight:bold;color:#111827;">#${escapeHtml(displayedHumanityNumber)}</div>
                         <div style="margin-top:8px;font-size:13px;color:#4b5563;">Issued ${escapeHtml(humanityCreatedAt)}</div>
                       </div>
                     </td>
@@ -320,7 +330,7 @@ const buildManagerOrderEmail = ({ order, customer, humanityNumber }) => {
     `${storeName} new paid order`,
     '',
     `Order number: ${order.order_number}`,
-    `Humanity Number: #${humanityNumber.id}`,
+    `Human Number: #${displayedHumanityNumber}`,
     `Order created: ${orderCreatedAt}`,
     `Customer: ${customerName}`,
     `Customer email: ${customer.email}`,

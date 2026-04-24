@@ -56,7 +56,8 @@ const createPayment = async (req, res) => {
           message: 'Existing successful payment reconciled',
           paymentId: result.payment.id,
           orderStatus: result.order.status,
-          humanityNumberId: result.humanityNumber.id,
+          humanityNumber: result.humanityNumber.humanity_number || result.humanityNumber.id,
+          humanityNumberRecordId: result.humanityNumber.id,
         });
       }
 

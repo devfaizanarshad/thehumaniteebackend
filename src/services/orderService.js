@@ -1,5 +1,6 @@
 const prisma = require('../database/db');
 const { sendOrderEmails } = require('./emailService');
+const { findOrCreateHumanityNumber } = require('./humanityNumberService');
 
 const markOrderPaid = async (paymentId) => {
   const payment = await prisma.payments.findUnique({
@@ -15,24 +16,27 @@ const markOrderPaid = async (paymentId) => {
   const orderId = payment.order_id;
   const customerId = payment.order.customer_id;
 
-  const [updatedPayment, updatedOrder, humanityNumber] = await prisma.$transaction([
-    prisma.payments.update({
-      where: { id: payment.id },
-      data: { status: 'successful' },
-    }),
-    prisma.orders.update({
-      where: { id: orderId },
-      data: { status: 'paid' },
-    }),
-    prisma.humanity_numbers.upsert({
-      where: { order_id: orderId },
-      update: {},
-      create: {
-        customer_id: customerId,
-        order_id: orderId,
-      },
-    }),
-  ]);
+  const transactionResult = await prisma.$transaction(async (tx) => {
+    const [updatedPayment, updatedOrder, humanityNumber] = await Promise.all([
+      tx.payments.update({
+        where: { id: payment.id },
+        data: { status: 'successful' },
+      }),
+      tx.orders.update({
+        where: { id: orderId },
+        data: { status: 'paid' },
+      }),
+      findOrCreateHumanityNumber({ tx, orderId, customerId }),
+    ]);
+
+    return {
+      updatedPayment,
+      updatedOrder,
+      humanityNumber,
+    };
+  });
+
+  const { updatedPayment, updatedOrder, humanityNumber } = transactionResult;
 
   let emailResult = null;
 
