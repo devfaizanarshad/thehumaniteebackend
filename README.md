@@ -188,7 +188,7 @@ Content-Type: application/json
   "total_amount": 29.99,
   "address_line_1": "123 Test Street",
   "address_line_2": "Suite 1",
-  "city": "Karachi",
+  "city": "Islamabad",
   "postal_code": "74000",
   "country": "PK"
 }
