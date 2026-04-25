@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "check": "node --check src/index.js && node --check src/controllers/orderController.js && node --check src/controllers/paymentController.js && node --check src/controllers/webhookController.js && node --check src/services/emailService.js && node --check src/services/humanityNumberService.js && node --check src/services/orderService.js && node --check src/services/stripeService.js",
+    "check": "node --check src/index.js && node --check src/controllers/adminController.js && node --check src/controllers/orderController.js && node --check src/controllers/paymentController.js && node --check src/controllers/webhookController.js && node --check src/routes/adminRoutes.js && node --check src/routes/orderRoutes.js && node --check src/routes/paymentRoutes.js && node --check src/routes/webhookRoutes.js && node --check src/services/emailService.js && node --check src/services/humanityNumberService.js && node --check src/services/orderService.js && node --check src/services/smokeTestService.js && node --check src/services/stripeService.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "test": "npm run check"

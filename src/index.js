@@ -4,6 +4,7 @@ const cors = require('cors');
 
 const orderRoutes = require('./routes/orderRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
@@ -25,6 +26,7 @@ app.use(express.json({ limit: '1mb' }));
 // Routes
 app.use('/orders', orderRoutes);
 app.use('/payments', paymentRoutes);
+app.use('/admin', adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

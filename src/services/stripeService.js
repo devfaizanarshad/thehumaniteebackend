@@ -17,11 +17,18 @@ const retrievePaymentIntent = async (paymentIntentId) => {
   return await stripe.paymentIntents.retrieve(paymentIntentId);
 };
 
+const confirmTestPaymentIntent = async (paymentIntentId, paymentMethod = 'pm_card_visa') => {
+  return await stripe.paymentIntents.confirm(paymentIntentId, {
+    payment_method: paymentMethod,
+  });
+};
+
 const verifyWebhookSignature = (payload, signature, secret) => {
   return stripe.webhooks.constructEvent(payload, signature, secret);
 };
 
 module.exports = {
+  confirmTestPaymentIntent,
   createPaymentIntent,
   retrievePaymentIntent,
   verifyWebhookSignature,

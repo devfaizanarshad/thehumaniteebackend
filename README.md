@@ -1,13 +1,14 @@
 # The Humanitee Backend
 
-Express + Prisma + Stripe backend for The Humanitee order flow.
+Production-oriented Express + Prisma backend for The Humanitee checkout flow.
 
-This API handles:
-- order creation
-- Stripe payment intent creation
-- Stripe webhook processing
-- unique human number generation in the `1` to `8,000,000,000` range
-- customer and manager order emails
+This API is responsible for:
+- creating customers and orders
+- creating Stripe PaymentIntents
+- processing Stripe webhook events
+- assigning a unique public-facing Human Number
+- sending customer and manager order emails
+- running a protected smoke test checkout endpoint for operations
 
 ## Stack
 
@@ -17,6 +18,35 @@ This API handles:
 - PostgreSQL
 - Stripe
 - Resend
+
+## Project Structure
+
+```text
+src/
+  config/
+    products.js
+  controllers/
+    adminController.js
+    orderController.js
+    paymentController.js
+    webhookController.js
+  database/
+    db.js
+  routes/
+    adminRoutes.js
+    orderRoutes.js
+    paymentRoutes.js
+    webhookRoutes.js
+  services/
+    emailService.js
+    humanityNumberService.js
+    orderService.js
+    smokeTestService.js
+    stripeService.js
+  index.js
+prisma/
+  schema.prisma
+```
 
 ## Scripts
 
@@ -50,24 +80,26 @@ ORDER_CURRENCY="USD"
 CORS_ORIGIN="https://thehumanitee.com,https://www.thehumanitee.com"
 
 EMAIL_FROM="The Humanitee <info@yourdomain.com>"
+EMAIL_TO="ops@example.com"
 ORDER_MANAGER_EMAIL="manager@example.com"
-EMAIL_TO="manager@example.com"
 RESEND_API_KEY="re_..."
 ```
 
 ### Optional
 
-Use this if you want product pricing configurable from env:
-
 ```env
 PRODUCT_CATALOG_JSON={"humanity-tee-black":{"name":"Humanity Tee Black","currency":"usd","prices":{"XS":29.99,"S":29.99,"M":29.99,"L":29.99,"XL":29.99,"XXL":29.99}}}
-```
-
-For local development email routing:
-
-```env
 QUOTE_EMAIL_DEV="dev@example.com"
+SMOKE_TEST_SECRET="replace-with-a-long-random-secret"
+ALLOW_SMOKE_TEST_IN_LIVE="false"
 ```
+
+### Important Environment Notes
+
+- In `development`, outgoing emails are redirected to `EMAIL_TO` when available.
+- In `production`, outgoing emails go to the real customer email and manager email.
+- The smoke-test endpoint is disabled unless `SMOKE_TEST_SECRET` is set.
+- The smoke-test endpoint is intended for Stripe test mode. It is blocked when `STRIPE_SECRET_KEY` is live unless `ALLOW_SMOKE_TEST_IN_LIVE=true`.
 
 ## Local Setup
 
@@ -77,29 +109,47 @@ QUOTE_EMAIL_DEV="dev@example.com"
 npm install
 ```
 
-2. Add `.env`
+2. Create `.env`
 
-3. Push schema to database:
+3. Sync Prisma schema:
 
 ```bash
 npm run prisma:push
 ```
 
-4. Start server:
+4. Start the API:
 
 ```bash
 npm run dev
 ```
 
-Health check:
+5. Verify health:
+
+```bash
+curl http://localhost:3000/health
+```
+
+## Base URL
+
+Examples in this README use:
 
 ```text
-GET /health
+http://localhost:3000
+```
+
+For production, replace that with your real API URL, for example:
+
+```text
+https://api.thehumanitee.com
 ```
 
 ## API Endpoints
 
-### Health
+### GET /health
+
+Simple health check.
+
+Example:
 
 ```http
 GET /health
@@ -114,13 +164,16 @@ Response:
 }
 ```
 
-### Create Order
+### POST /orders
+
+Creates a customer if needed, then creates a pending order.
+
+Example request:
 
 ```http
 POST /orders
+Content-Type: application/json
 ```
-
-Request body:
 
 ```json
 {
@@ -130,7 +183,6 @@ Request body:
   "email": "faiza@example.com",
   "phone": "+15550123000",
   "product_key": "humanity-tee-black",
-  "product_name": "Ignored on server",
   "size": "M",
   "quantity": 1,
   "total_amount": 29.99,
@@ -142,10 +194,12 @@ Request body:
 }
 ```
 
-Notes:
-- `product_name` from client is ignored
-- `total_amount` is validated against server-side pricing
-- invalid totals are rejected
+Validation behavior:
+
+- `product_name` from the client is ignored
+- pricing is calculated server-side
+- if `total_amount` is supplied and does not match server pricing, the request is rejected
+- quantity must be a positive integer between `1` and `10`
 
 Success response:
 
@@ -154,46 +208,59 @@ Success response:
   "message": "Order created successfully",
   "order": {
     "id": "1",
-    "order_number": "ORD-...",
+    "customer_id": "1",
+    "order_number": "ORD-1777000000000-123",
+    "product_key": "humanity-tee-black",
+    "product_name": "Humanity Tee Black",
+    "size": "M",
+    "quantity": 1,
+    "total_amount": "29.99",
     "status": "pending"
   }
 }
 ```
 
-### Get Order Details
+### GET /orders/:id
+
+Returns an order with its customer and Human Number record when available.
+
+Example:
 
 ```http
-GET /orders/:id
+GET /orders/1
 ```
 
-Returns:
-- order
-- customer
-- human number record if generated
-
-Example paid-order detail shape:
+Response shape:
 
 ```json
 {
   "order": {
-    "id": "16",
+    "id": "1",
+    "order_number": "ORD-1777000000000-123",
     "status": "paid",
+    "customer": {
+      "id": "1",
+      "email": "faiza@example.com"
+    },
     "humanity_num": {
-      "id": "11",
+      "id": "1",
       "humanity_number": "4759322983",
-      "order_id": "16"
+      "order_id": "1"
     }
   }
 }
 ```
 
-### Create Payment Intent
+### POST /payments
+
+Creates a Stripe PaymentIntent for a pending order, or returns an existing pending PaymentIntent.
+
+Example request:
 
 ```http
 POST /payments
+Content-Type: application/json
 ```
-
-Request body:
 
 ```json
 {
@@ -202,9 +269,10 @@ Request body:
 ```
 
 Behavior:
-- creates Stripe payment intent for unpaid order
-- reuses existing pending payment intent for same order
-- reconciles already-succeeded payment if webhook was missed briefly
+
+- only works for `pending` orders
+- reuses an existing pending Stripe payment intent
+- if a pending Stripe PaymentIntent has already succeeded, it reconciles the order automatically
 
 Success response:
 
@@ -226,34 +294,183 @@ Or:
 }
 ```
 
-### Stripe Webhook
+Or on reconciliation:
 
-```http
-POST /webhook
+```json
+{
+  "message": "Existing successful payment reconciled",
+  "paymentId": "1",
+  "orderStatus": "paid",
+  "humanNumber": "4759322983",
+  "humanNumberRecordId": "1"
+}
 ```
 
-Handled events:
+### POST /webhook
+
+Stripe webhook endpoint.
+
+Register this exact URL in Stripe:
+
+```text
+https://your-api-domain.com/webhook
+```
+
+Supported events:
+
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
 
 On successful payment:
+
 - payment status becomes `successful`
 - order status becomes `paid`
-- unique human number is reserved and created
-- customer confirmation email is sent
-- manager order email is sent
+- a unique Human Number is reserved
+- customer email is sent
+- manager email is sent
+
+### POST /admin/smoke-test/checkout
+
+Protected operational endpoint for a full smoke test.
+
+What it does:
+
+- creates or updates a customer
+- creates a pending order
+- creates a Stripe PaymentIntent
+- confirms the PaymentIntent using Stripe test card behavior
+- runs the paid-order flow
+- generates the Human Number
+- sends the emails
+- returns a single JSON summary
+
+This endpoint is intended for internal use only.
+
+Security requirements:
+
+- `SMOKE_TEST_SECRET` must be set in `.env`
+- send the secret either as:
+  - `Authorization: Bearer <secret>`
+  - or `x-smoke-test-secret: <secret>`
+
+Test-mode safety:
+
+- if `STRIPE_SECRET_KEY` is live, this endpoint is blocked unless `ALLOW_SMOKE_TEST_IN_LIVE=true`
+
+Minimal example:
+
+```http
+POST /admin/smoke-test/checkout
+Authorization: Bearer your-secret
+Content-Type: application/json
+```
+
+```json
+{}
+```
+
+Default behavior when the body is empty:
+
+- customer email defaults to `EMAIL_TO` or `ORDER_MANAGER_EMAIL`
+- product defaults to `humanity-tee-black`
+- size defaults to `M`
+- quantity defaults to `1`
+
+Custom example:
+
+```json
+{
+  "first_name": "Dev",
+  "last_name": "Faizan",
+  "email": "devfaizanarshad@gmail.com",
+  "phone": "+15550004444",
+  "product_key": "humanity-tee-black",
+  "size": "L",
+  "quantity": 1,
+  "address_line_1": "789 Test Road",
+  "city": "Karachi",
+  "postal_code": "75500",
+  "country": "Pakistan"
+}
+```
+
+Example response:
+
+```json
+{
+  "message": "Smoke test checkout completed successfully",
+  "mode": "stripe-test",
+  "order": {
+    "id": "19",
+    "orderNumber": "ORD-1777051274440-303",
+    "status": "paid",
+    "totalAmount": "29.99"
+  },
+  "payment": {
+    "id": "20",
+    "paymentIntentId": "pi_3TPnPjAwfDJBAVjN4KZOvclB",
+    "status": "succeeded"
+  },
+  "humanNumber": {
+    "recordId": "13",
+    "value": "2175401471"
+  },
+  "email": {
+    "requestedCustomerEmail": "devfaizanarshad@gmail.com",
+    "actualManagerRecipient": "devfaizanarshad@gmail.com",
+    "runtimeMode": "production",
+    "note": "Emails are sent to the real addresses provided/configured."
+  }
+}
+```
+
+Production curl example:
+
+```bash
+curl -X POST https://api.thehumanitee.com/admin/smoke-test/checkout \
+  -H "Authorization: Bearer YOUR_SMOKE_TEST_SECRET" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"devfaizanarshad@gmail.com\"}"
+```
+
+## Stripe Integration Notes
+
+### Test Mode
+
+To test the deployed production API safely:
+
+- keep `NODE_ENV=production`
+- use `sk_test_...` as `STRIPE_SECRET_KEY`
+- use the matching Stripe test-mode webhook secret
+- register `https://api.thehumanitee.com/webhook` in Stripe test mode
+
+Test card:
+
+```text
+4242 4242 4242 4242
+```
+
+Use any future expiry, any 3-digit CVC, and any ZIP/post code.
+
+### Live Mode
+
+Before real launch:
+
+- switch to `sk_live_...`
+- create or update the live webhook endpoint
+- replace `STRIPE_WEBHOOK_SECRET`
+- verify emails with a real sender domain
 
 ## Email Behavior
 
-When payment succeeds:
-
 ### Customer email
 
-Sent to the buyer email address.
+Sent after successful payment.
 
 Contains:
+
 - order number
-- human number
+- Human Number
 - product
 - size
 - quantity
@@ -262,15 +479,16 @@ Contains:
 
 ### Manager email
 
-Sent to:
+Sent after successful payment to:
 
 ```env
 ORDER_MANAGER_EMAIL
 ```
 
 Contains:
+
 - order number
-- human number
+- Human Number
 - customer name
 - customer email
 - customer phone
@@ -287,59 +505,70 @@ Contains:
 
 ## Pricing Rules
 
-Pricing is server-side.
+Pricing is calculated server-side from `PRODUCT_CATALOG_JSON` or the default catalog in `src/config/products.js`.
 
-Default product catalog:
-- `humanity-tee-black`
+Default catalog:
+
+- product key: `humanity-tee-black`
 - sizes: `XS`, `S`, `M`, `L`, `XL`, `XXL`
 - default price: `29.99`
 
-If you need different products or prices, use `PRODUCT_CATALOG_JSON`.
+## Human Number Rules
+
+The public Human Number is stored in `humanity_numbers.humanity_number`.
+
+Rules:
+
+- generated automatically after successful payment
+- unique across all orders
+- generated in the range `1` to `8,000,000,000`
+- never intended to be re-assigned
 
 ## Database Models
 
-Prisma models:
+Main Prisma models:
+
 - `customers`
 - `orders`
 - `payments`
 - `humanity_numbers`
 
-`humanity_numbers.humanity_number` is the public-facing reserved human number.
-It is unique and generated in the `1` to `8,000,000,000` range.
+## Deployment Checklist
 
-## Production Notes
+1. Add production `.env`
+2. Install dependencies:
 
-Before going live:
-- use a cloud PostgreSQL database
-- use live Stripe keys
-- use a real public backend URL
-- register your live Stripe webhook URL
-- verify your Resend sender domain
-- rotate any credentials that were shared in chat
+```bash
+npm install
+```
 
-Recommended production webhook URL:
+3. Sync schema:
+
+```bash
+npx prisma db push
+```
+
+4. Start the app:
+
+```bash
+npm run start
+```
+
+5. Verify health:
+
+```bash
+curl https://your-api-domain.com/health
+```
+
+6. Register the Stripe webhook:
 
 ```text
 https://your-api-domain.com/webhook
 ```
 
-## Deployment Checklist
+7. Run a smoke test checkout using `/admin/smoke-test/checkout`
 
-- set production `.env`
-- run `npm install`
-- run `npm run prisma:push`
-- run `npm run start`
-- verify `GET /health`
-- verify Stripe webhook endpoint
-- place one real or final test checkout
+## Residual Notes
 
-## Current Flow Summary
-
-Current tested flow:
-1. customer creates order
-2. frontend requests payment intent
-3. Stripe confirms payment
-4. Stripe sends webhook
-5. backend marks order paid
-6. backend creates human number
-7. backend sends customer + manager emails
+- Email clients do not support reliable clipboard buttons, so true copy-to-clipboard UI should live on a web page, not inside email HTML.
+- The smoke-test endpoint is intentionally protected because it creates real database rows and Stripe test objects.
