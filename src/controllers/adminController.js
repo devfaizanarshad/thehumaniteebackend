@@ -133,8 +133,70 @@ const getCustomersWithUniqueNumbers = async (req, res) => {
   }
 };
 
+const deleteHumanityNumber = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({
+        error: 'Missing humanity number',
+      });
+    }
+
+    const humanityNumber = BigInt(id);
+
+    await prisma.humanity_numbers.delete({
+      where: {
+        humanity_number: humanityNumber,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Humanity number ${id} deleted successfully`,
+    });
+  } catch (error) {
+    console.error('Error deleting humanity number:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+    });
+  }
+};
+
+const bulkDeleteHumanityNumbers = async (req, res) => {
+  try {
+    const { humanity_numbers } = req.body;
+    if (!Array.isArray(humanity_numbers) || humanity_numbers.length === 0) {
+      return res.status(400).json({
+        error: 'Missing or empty humanity_numbers list',
+      });
+    }
+
+    const ids = humanity_numbers.map(num => BigInt(num));
+
+    await prisma.humanity_numbers.deleteMany({
+      where: {
+        humanity_number: {
+          in: ids,
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully deleted ${humanity_numbers.length} humanity numbers`,
+    });
+  } catch (error) {
+    console.error('Error in bulk deleting humanity numbers:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+    });
+  }
+};
+
 module.exports = {
   runSmokeTestCheckout,
   getCustomersWithUniqueNumbers,
+  deleteHumanityNumber,
+  bulkDeleteHumanityNumbers,
 };
 
